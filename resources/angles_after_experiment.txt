@@ -1,0 +1,1 @@
+Motor_1 angle: -24.50, Motor_2 angle: 0.30

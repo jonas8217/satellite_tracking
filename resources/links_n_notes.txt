@@ -1,0 +1,29 @@
+UART: https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
+
+To move motors:
+ROTn_CMD_MOTORS & ROTn_CMD_POWER
+
+Other sources for the protocol:
+github.com/jaidenfe/rot2proG
+https://ryeng.name/blog/3
+
+angular rates at 100% power:
+    azimuth:    ~1.5 degrees/second (motor_0_max_power = 0x32 0x00 0x00 0x00, motor_0_min_power = 0x32 0x00 0x00 0x00) 
+    elevation:  ~1.5 degrees/second (motor_1_max_power = 0x32 0x00 0x00 0x00, motor_1_min_power = 0x32 0x00 0x00 0x00)
+    evaluate voltage drop due to wire resistance (determine if voltage or current controlled)
+
+response time/message rate:
+    16 ms
+
+motor command to action delay:
+    ~ 48 ms (3 cycles of 16 ms)
+
+angle boundaries:
+    azimuth: [-180.00; 540.00] (in configuration)
+    elevation: [-5.00; 185.00] (in configuration)
+    Unsure if these values are representative for the actual range of the rotor
+
+angle offsets:
+    azimuth:    
+    elevation:  
+    (Do sun tracking)
