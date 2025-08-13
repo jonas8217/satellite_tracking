@@ -6,6 +6,17 @@ import json
 
 project_dir = os.path.abspath(os.path.dirname(__file__) + "/..")
 
+
+def optimize_trajectory(ts, azs, els, az_dots, el_dots):
+    ts, azs, els, az_dots, el_dots
+    
+
+def write_traj(ts,azs,els,rise,sat_name):
+    with open(project_dir + f"/trajectories/{sat_name.replace(' ','_')}_{rise.strftime('%Y_%m_%d_%H_%M_%S')}.csv", "w",newline="") as f:
+        f.write("time [ms], azimuth [degrees], elevation [degrees]\n")
+        for t,az,el in zip(ts,azs,els):
+            f.write(f"{rise.timestamp() + t}, {az}, {el}, \n")
+
 def main(argv):
 
     if len(argv) < 2:
@@ -173,6 +184,7 @@ def main(argv):
                 for t,az,el in zip(ts,azs,els):
                     f.write(f"{rise.timestamp() + t}, {az}, {el}, \n")
         else:
+            optimize_trajectory()
             print("TODO :)")
 
         if input("Create another? [y/N]").lower() in ["y","yes"]:
