@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "ProtocolRoTxCfg.h"
+#include "utils.cpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +28,8 @@
 
 #define DEBUG_COMMS 0
 #define DO_CONTROL 0
+
+#define MICRO_SEC_PER_SEC 1000000.0
 
 int SERIAL_PORT;
 struct termios tty_;
@@ -282,13 +285,6 @@ void print_cfg() {
     }
 }
 
-std::string ZeroPadNumber(int num, int width)
-{
-    std::ostringstream ss;
-    ss << std::setw( width ) << std::setfill( '0' ) << num;
-    return ss.str();
-}
-
 cfg_value cfg_values[sizeof(rotCfgFields)];
 
 cfg_value get_configuration(int field_id = -1) {
@@ -354,8 +350,8 @@ void set_soft_hard(bool s1, bool s2) {
 // TODO make it round correctly instead of roudning down (+0.5)
 void set_angles(double* angle_input) {
     // angleToSend = IntToString(360 * divisor + (desiredAngle * divisor))
-    std::string s1 = ZeroPadNumber((int)(360 * 10 + (angle_input[0] * 10)),4);  // do the math and convert to string
-    std::string s2 = ZeroPadNumber((int)(360 * 10 + (angle_input[1] * 10)),4);
+    std::string s1 = ZeroPadNumber2Str((int)(360 * 10 + (angle_input[0] * 10)),4);  // do the math and convert to string
+    std::string s2 = ZeroPadNumber2Str((int)(360 * 10 + (angle_input[1] * 10)),4);
 
     setup_write_buffer_for_input(CMD_SET_ANGLES);
 
@@ -374,8 +370,8 @@ void set_angles(double* angle_input) {
 // TODO make it round correctly instead of roudning down (+0.05)
 void set_angles_100(double* angle_input) {
     // angleToSend = IntToString(360 * divisor + (desiredAngle * divisor))
-    std::string s1 = ZeroPadNumber((int)(360 * 100 + (angle_input[0] * 100)),5);  // do the math and convert to string
-    std::string s2 = ZeroPadNumber((int)(360 * 100 + (angle_input[1] * 100)),5);
+    std::string s1 = ZeroPadNumber2Str((int)(360 * 100 + (angle_input[0] * 100)),5);  // do the math and convert to string
+    std::string s2 = ZeroPadNumber2Str((int)(360 * 100 + (angle_input[1] * 100)),5);
 
     setup_write_buffer_for_input(CMD_SET_ANGLES_100);
 
@@ -448,11 +444,6 @@ void set_motor_power(int p1, int p2) {
     }
 }
 
-template <typename T>
-int sign(T val) {
-    return (T(0) < val) - (val < T(0));
-}
-
 
 void command_motors(int control_input[2], double* angle_output) {
     static int last_directions[2] = {0, 0};
@@ -479,11 +470,6 @@ void command_motors(int control_input[2], double* angle_output) {
     else {
         get_angles_100(angle_output);
     }
-}
-
-double exp_smoothing (double inp, double prev, double alpha = 0.05) {
-    return alpha * inp + (1 - alpha) * prev;
-
 }
 
 void control_step(double reference[2], double value[2], int* output, double dt, double max_vel = 1.5, double max_acc = 25) {
@@ -526,7 +512,7 @@ void control_step(double reference[2], double value[2], int* output, double dt, 
         }
         prev_error[i] = error;
         prev_value[i] = value[i];
-        std::cout << reference[i] << " " << value[i] << " " << error << " " << error_dot << " " << v_dot << " " << desired_acc << " " << acc << " " << u <<  " " << output[i] << std::endl;
+        // std::cout << reference[i] << " " << value[i] << " " << error << " " << error_dot << " " << v_dot << " " << desired_acc << " " << acc << " " << u <<  " " << output[i] << std::endl;
     }
     // std::cout << dt << std::endl;
 }
@@ -572,9 +558,101 @@ void track_trajectory(std::string trajectory_file_path) {
 
     std::cout << traj.size() << std::endl;
 
-    // int now_ms = 
 
-    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << std::endl;
+    auto now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    double now_s = now_micro_sec/MICRO_SEC_PER_SEC;
 
+    double end_time = traj[traj.size()-1][0];
+    double start_time = traj[0][0];
 
+    if (now_s > traj[0][0]) {
+        if (now_s < traj[traj.size()-1][0]) {
+            std::cout << "Pass is underway, there are " << (int)now_s << " seconds left, track anyway? [y/N]: ";
+            std::string ans;
+            getline(std::cin, ans);
+            if (! (ans == "y" || ans == "Y")) {
+                return;
+            }
+        } else {
+            int end_duration = (int)(traj[traj.size()-1][0] - now_s);
+            std::cout << "The pass has ended " << end_duration/60 << " minutes and " << end_duration - (end_duration/60)*60  << " seconds ago, exiting." << std::endl;
+            return;
+        }
+    } else {
+        int sec_until = traj[0][0] - (int)now_s;
+        std::cout << "The pass will happen in " << sec_until/60 << " minutes and " << sec_until - (sec_until/60)*60  << " seconds, wait for pass and track? [Y/n]: ";
+        std::string ans;
+        getline(std::cin, ans);
+        if (ans == "n" || ans == "N") {
+            return;
+        }
+    }
+
+    // TODO do workspace boundary check
+
+    // TODO do max axis speed check
+
+    // setup connection
+    // if (setup_USB_UART_connection() != 0) return;
+    // Goto start position
+    double start_angle[2] = {traj[0][1], traj[0][2]};
+    printf("Going to start position. Az: %.2f El: %.2f\n",traj[0][1], traj[0][2]);
+    // set_angles_100(start_angle);
+
+    // wait
+    if (now_s + 10 < start_time) {
+        std::cout << "Waiting for start of pass" << std::endl;
+        while (now_s + 10 < start_time) {
+            now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            now_s = now_micro_sec/MICRO_SEC_PER_SEC;
+            sleep(1);
+        }
+        printf("10 seconds to pass");
+    }
+
+    // track trajectory
+
+    double angles_ref[2] = {0,0};
+
+    double angles_measured[2];
+    int control_signal[2];
+
+    // get_angles_100(angles_measured);
+    angles_ref[0] = start_angle[0]; angles_ref[1] = start_angle[1];
+
+    int traj_index = 0;
+
+    now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    now_s = now_micro_sec/MICRO_SEC_PER_SEC;
+    double prev_time_s = now_s;
+    while (now_s < end_time) {
+
+        now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        now_s = now_micro_sec/MICRO_SEC_PER_SEC;
+        double dt = (prev_time_s - now_s);
+        prev_time_s = now_s;
+
+        if (now_s > traj[traj_index][0]) {
+            traj_index++;
+        }
+
+        // lerp between the points in the trajectory
+        double traj_angles[2] = {traj[traj_index][1], traj[traj_index][2]};
+        double traj_angles_next[2] = {traj[traj_index+1][1], traj[traj_index+1][2]};
+        double t = (now_s - traj[traj_index][0]) / (traj[traj_index+1][0] - traj[traj_index][0]);
+        lerp_arr(traj_angles,traj_angles_next,t,angles_ref,2);
+
+        control_step(angles_ref, angles_measured, control_signal, dt, 6.0, 100.0);
+        if (angular_distance(angles_ref, angles_measured) < 0.05) {
+            int zero[2] = {0,0};
+            // command_motors(zero, angles_measured);
+        } else {
+            // command_motors(control_signal, angles_measured);
+        }
+        if (true || std::isnan(angles_measured[0]) || std::isnan(angles_measured[1]) || angular_distance(angles_ref, angles_measured) < 0.5) {
+            // get_angles_100(angles_measured);
+        }
+
+        usleep((int)std::max(0.0, (0.1 - dt) * MICRO_SEC_PER_SEC));
+    }
 }

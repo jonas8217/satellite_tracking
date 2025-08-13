@@ -28,7 +28,7 @@ for file_name in file_names:
             i += 1
         
         az_speed = (table[-1,3] - table[i,3])/(table[-1,0]-table[i,0])
-        print("az_speed", az_speed)
+        print("az_speed", az_speed, "Az init", table[i,3], "El init", table[i,4])
     else:
         el_init = table[0,4]
         i = 0
@@ -36,7 +36,7 @@ for file_name in file_names:
             i += 1
         
         el_speed = (table[-1,4] - table[i,4])/(table[-1,0]-table[i,0])
-        print("el_speed", el_speed)
+        print("el_speed", el_speed, "Az init", table[i,3], "El init", table[0,4])
 
 # el_speed = az_speed = 0
 # el_speed += abs(1.5474773986052)

@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <mutex>
+#include <csignal>
 
 void print_help() {
     printf("Commands:\n");
@@ -14,11 +15,17 @@ void print_help() {
     // get-config
 }
 
-#define MICRO_SEC_PER_SEC 1000000
-
 volatile double angles_reference_input[2] = {0,0};
 volatile bool stop = false;
 std::mutex m;
+
+void signalHandler( int signum ) {
+    std::cout << "\nInterrupt signal (" << signum << ") received." << std::endl;
+    std::cout << "Stopping rotor" << std::endl;
+    stop_rotor();
+
+    exit(signum);
+}
 
 void get_reference_input() {
     double angles[2] = {0,0};
@@ -46,18 +53,19 @@ void get_reference_input() {
     }
 }
 
-double angular_distance(double a[2], double b[2]) {
-    // approximate with Euclidean distance (correct for small angles)
-    return std::sqrt((a[0]-b[0])*(a[0]-b[0])+(a[1]-b[1])*(a[1]-b[1]));
-}
-
 int main(int argc, char *argv[]) {
+    signal(SIGINT, signalHandler);
+
     bool do_control = false;
     if (argc > 1) {  // test for commands
         if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "help") == 0) {
             print_help();
             return 0;
         } else if (std::strcmp(argv[1], "track") == 0) {
+            if (argc != 3) {
+                printf("Missing trajectory file in input\n");
+                return -1;
+            }
             track_trajectory(argv[2]);
             return 0;
         } else if (std::strcmp(argv[1], "do-control") == 0) {
@@ -174,7 +182,7 @@ int main(int argc, char *argv[]) {
 
         get_angles_100(angles_measured);
         angles_reference_input[0] = angles_measured[0]; angles_reference_input[1] = angles_measured[1];
-        angles_ref[0] = angles_reference_input[1]; angles_ref[1] = angles_reference_input[1];
+        angles_ref[0] = angles_reference_input[0]; angles_ref[1] = angles_reference_input[1];
 
         std::thread thread(get_reference_input);
         auto start_time = std::chrono::high_resolution_clock::now();
@@ -212,7 +220,7 @@ int main(int argc, char *argv[]) {
                 get_angles_100(angles_measured);
             }
 
-            usleep(std::max(0, (int) (0.1 - dt) * MICRO_SEC_PER_SEC));
+            usleep((int)std::max(0.0, (0.1 - dt) * MICRO_SEC_PER_SEC));
         }
         thread.join();
 
