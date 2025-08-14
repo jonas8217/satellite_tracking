@@ -390,6 +390,21 @@ def main(argv):
         else:
             new_azs, new_els, err, method = optimize_trajectory(ts, azs, els)
 
+            # fix the trajectory to be inside the rotor limits if necessary and if possible
+            if not (max(new_azs) < rotor_max_az and min(new_azs) < rotor_min_az):
+                if max(new_azs) - min(new_azs) > rotor_max_az - rotor_min_az:
+                    print("something is very wrong with this trajectory...")
+                else:
+                    if min(new_azs) < rotor_min_az and max(new_azs) + 360 < rotor_max_az:
+                        new_azs[:] = [new_az + 360 for new_az in new_azs]
+                    elif max(new_azs) > rotor_max_az and min(new_azs) - 360 < rotor_min_az:
+                        new_azs[:] = [new_az - 360 for new_az in new_azs]
+                    else:
+                        # TODO
+                        print("implement a method for flipping the elvation axis to achive a rotation of 180 degrees")
+                        break
+
+
             if VISUALIZE:
                 if method == 1:
                     title = "trajectory optimization around keyhole"

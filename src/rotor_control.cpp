@@ -524,12 +524,13 @@ void track_trajectory(std::string trajectory_file_path) {
     //   * Time window
     //   * Angular range
     //   * Angular velocity
-    // print info about the trajectory for validation
+    // print info about the trajectory for validation TODO
     
     // Run 
-    // wait for confirmation
     //
     // go to starting position
+    // wait for start of the pass
+    // run control loop
     
     std::cout << trajectory_file_path << std::endl;
     std::fstream fs;
@@ -546,7 +547,6 @@ void track_trajectory(std::string trajectory_file_path) {
     
     std::string line;
     while (std::getline(fs,line)) {
-        // std::cout << line << std::endl;
         std::string t_s,az_s,el_s;
         double t,az,el;
         std::stringstream line_s(line);
@@ -555,9 +555,21 @@ void track_trajectory(std::string trajectory_file_path) {
         std::array<double,3> tmp = {t,az,el};
         traj.push_back(tmp);
     }
+ 
+    // TODO move to the configuration file and load them, or get them from the ground station config via get_configuration directly from the rotor controller
+    int rotor_min_el = -5;
+    int rotor_max_el = 185;
+    int rotor_min_az = -180;
+    int rotor_max_az = 540;
+    
+    for (int i = 0; i < traj.size(); i++) {
+        std::array<double,3> waypoint = traj[i];
+        if (waypoint[1] < rotor_min_el || waypoint[1] > rotor_max_el || waypoint[2] < rotor_min_az || waypoint[2] < rotor_max_az) {
+            printf("Waypoints %d out of range Az: %.2f El: %.2f \n", i, waypoint[1], waypoint[2]);
+        }
+    }
 
-    std::cout << traj.size() << std::endl;
-
+    // TODO do max axis speed check
 
     auto now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     double now_s = now_micro_sec/MICRO_SEC_PER_SEC;
@@ -588,12 +600,8 @@ void track_trajectory(std::string trajectory_file_path) {
         }
     }
 
-    // TODO do workspace boundary check
-
-    // TODO do max axis speed check
-
     // setup connection
-    // if (setup_USB_UART_connection() != 0) return;
+    if (setup_USB_UART_connection() != 0) return;
     // Goto start position
     double start_angle[2] = {traj[0][1], traj[0][2]};
     printf("Going to start position. Az: %.2f El: %.2f\n",traj[0][1], traj[0][2]);
@@ -617,7 +625,7 @@ void track_trajectory(std::string trajectory_file_path) {
     double angles_measured[2];
     int control_signal[2];
 
-    // get_angles_100(angles_measured);
+    get_angles_100(angles_measured);
     angles_ref[0] = start_angle[0]; angles_ref[1] = start_angle[1];
 
     int traj_index = 0;
@@ -645,12 +653,12 @@ void track_trajectory(std::string trajectory_file_path) {
         control_step(angles_ref, angles_measured, control_signal, dt, 6.0, 100.0);
         if (angular_distance(angles_ref, angles_measured) < 0.05) {
             int zero[2] = {0,0};
-            // command_motors(zero, angles_measured);
+            command_motors(zero, angles_measured);
         } else {
-            // command_motors(control_signal, angles_measured);
+            command_motors(control_signal, angles_measured);
         }
         if (true || std::isnan(angles_measured[0]) || std::isnan(angles_measured[1]) || angular_distance(angles_ref, angles_measured) < 0.5) {
-            // get_angles_100(angles_measured);
+            get_angles_100(angles_measured);
         }
 
         usleep((int)std::max(0.0, (0.1 - dt) * MICRO_SEC_PER_SEC));
