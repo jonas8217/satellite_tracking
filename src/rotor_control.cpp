@@ -18,6 +18,7 @@
 #include <sstream>
 #include <fstream>
 #include <vector>
+#include <array>
 
 #define PORT "/dev/ttyUSB0"
 #define BAUDRATE B115200
@@ -478,7 +479,6 @@ void control_step(double reference[2], double value[2], int* output, double dt, 
     static double v_dot_prev[2] = {0,0};
     double Kp = 0.2 * max_vel;
     double Kd = 0.0000 * max_vel;
-    Kd = 0;
 
     for (int i = 0; i < 2; i++) {
         double error = reference[i] - value[i];
@@ -513,6 +513,47 @@ void control_step(double reference[2], double value[2], int* output, double dt, 
         prev_error[i] = error;
         prev_value[i] = value[i];
         // std::cout << reference[i] << " " << value[i] << " " << error << " " << error_dot << " " << v_dot << " " << desired_acc << " " << acc << " " << u <<  " " << output[i] << std::endl;
+    }
+    // std::cout << dt << std::endl;
+}
+
+void control_step_v2(double reference[2], double value[2], int* output, double dt, double max_vel = 1.5, double max_acc = 25) {
+    static double prev_value[2] = {value[0],value[1]};
+    static double v_prev[2] = {0,0};
+    static double p_min[2] = {(double)20, (double)20};
+    double Kp = 0.2 * max_vel;
+    // double Ki = 1;
+
+    for (int i = 0; i < 2; i++) {
+
+        double v_f = Kp * (reference[i] - value[i]);
+
+        // double v = 0;
+        // if (dt != 0) { // This should be true for all but the first step
+        //     v = (value[i] - prev_value[i]) / dt; // possibly quite noisy;
+        //     v = exp_smoothing(v, v_prev[i], 0.05); // so filter it
+        //     v_prev[i] = v;
+        //     if (v_prev[i] < 0.001) {
+        //         v_prev[i] = 0;
+        //     }
+        // }
+
+        // minimum power correction
+        // p_min[i] += (std::abs(v_f) - std::abs(v)) * Ki * dt;
+        // p_min[i] = std::max(std::min(std::abs(p_min[i]), 30.0), 10.0);
+
+        // convert from degrees per second to percentage, [max_vel] deg/s = 100 %
+        // v_y = (v_x - a_x) * (b_y - a_y)/(b_x - a_x) + a_y
+        int sgn = sign(v_f);
+        output[i] = (int) (v_f * (max_power - p_min[i])/(max_vel) + p_min[i] * sgn);
+        // output[i] = (int) (u * max_power / max_vel);
+        if (std::abs(v_f) < 0.05 || std::abs(reference[i] - value[i]) < 0.01) {
+            output[i] = 0;
+        } else {
+            output[i] = sgn * std::max(std::min(std::abs(output[i]), max_power), (int)p_min[i]); // saturate the commanded velocity
+        }
+        prev_value[i] = value[i];
+        // std::cout << "reference: " << reference[i] << " value: " << value[i] << " output: " << output[i] << " p_min: " << p_min[i] << " v_f: " << v_f << " v: " << v << std::endl;
     }
     // std::cout << dt << std::endl;
 }

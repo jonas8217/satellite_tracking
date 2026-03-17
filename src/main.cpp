@@ -3,6 +3,7 @@
 #include <thread>
 #include <mutex>
 #include <csignal>
+#include <filesystem>
 
 void print_help() {
     printf("Commands:\n");
@@ -16,8 +17,10 @@ void print_help() {
 }
 
 volatile double angles_reference_input[2] = {0,0};
+volatile double angles_measured_output[2] = {0,0};
 volatile bool stop = false;
-std::mutex m;
+std::mutex angles_ref_mutex;
+std::mutex angles_out_mutex;
 
 void signalHandler( int signum ) {
     std::cout << "\nInterrupt signal (" << signum << ") received." << std::endl;
@@ -25,6 +28,18 @@ void signalHandler( int signum ) {
     stop_rotor();
 
     exit(signum);
+}
+
+void interpret_input(std::string angle_str, double *angle_output) {
+    unsigned idx = angle_str.find(" ");
+    std::string X = angle_str.substr(0, idx);
+    std::string Y = angle_str.substr(idx+1, angle_str.length()-(idx+1));
+    try {
+        angle_output[0] = std::stod(X);
+        angle_output[1] = std::stod(Y);
+    } catch (std::invalid_argument& e) {
+        std::cout << "Incorrect angle input format. Format as \"X Y\" (decimals allowed)." << std::endl;
+    }
 }
 
 void get_reference_input() {
@@ -36,20 +51,49 @@ void get_reference_input() {
             stop = true;
             return;
         }
-        unsigned idx = inp_buff.find(" ");
-        std::string X = inp_buff.substr(0, idx);
-        std::string Y = inp_buff.substr(idx+1, inp_buff.length()-(idx+1));
-        try {
-            angles[0] = std::stod(X);
-            angles[1] = std::stod(Y);
-            {
-                const std::lock_guard<std::mutex> lock(m);
-                angles_reference_input[0] = angles[0];
-                angles_reference_input[1] = angles[1];
-            }
-        } catch (std::invalid_argument& e) {
-            std::cout << "Incorrect angle input format. Format as \"X Y\" (decimals allowed)." << std::endl;
+        interpret_input(inp_buff, angles);
+        {
+            const std::lock_guard<std::mutex> lock(angles_ref_mutex);
+            angles_reference_input[0] = angles[0];
+            angles_reference_input[1] = angles[1];
         }
+    }
+}
+
+void get_reference_input_file(std::string fpath) {
+    double angles[2] = {0,0};
+    while (true) {
+        std::string text_input;
+        std::ifstream angles_fp(fpath);
+        std::getline(angles_fp, text_input);
+        angles_fp.close();
+        interpret_input(text_input, angles);
+        {
+            const std::lock_guard<std::mutex> lock(angles_ref_mutex);
+            angles_reference_input[0] = angles[0];
+            angles_reference_input[1] = angles[1];
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+void send_angle_to_output_file(std::string path, double angles[2]) {
+    std::ofstream angles_out_fp("/tmp/rotor_angle_tmp");
+    angles_out_fp << angles[0] << " " << angles[1];
+    angles_out_fp.close();
+    std::filesystem::rename("/tmp/rotor_angle_tmp", path);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+
+void thread_method_angle_to_file(std::string path) {
+    double angles[2] = {0,0};
+    while (true) {
+        {
+            const std::lock_guard<std::mutex> lock(angles_out_mutex);
+            angles[0] = angles_measured_output[0];
+            angles[1] = angles_measured_output[1];
+        }
+        send_angle_to_output_file(path,angles);
     }
 }
 
@@ -184,12 +228,20 @@ int main(int argc, char *argv[]) {
         angles_reference_input[0] = angles_measured[0]; angles_reference_input[1] = angles_measured[1];
         angles_ref[0] = angles_reference_input[0]; angles_ref[1] = angles_reference_input[1];
 
-        std::thread thread(get_reference_input);
+        std::string home_path = std::getenv("HOME");
+        std::string angles_inp_path = home_path + "/rotator";
+        std::string angles_out_path = home_path + "/rotator_measured";
+
+        // Reset rotator file to ensure nothing is moving in the very beginning
+        send_angle_to_output_file(home_path + "/rotator", angles_measured);
+
+        std::thread input_thread(get_reference_input_file, angles_inp_path);
+        std::thread output_thread(thread_method_angle_to_file, angles_out_path);
         auto start_time = std::chrono::high_resolution_clock::now();
 
         while (!stop) {
             { // scope for the mutex lock so it releases the lock when it exits the scope
-                const std::lock_guard<std::mutex> lock(m);
+                const std::lock_guard<std::mutex> lock(angles_ref_mutex);
                 angles_ref[0] = angles_reference_input[0];
                 angles_ref[1] = angles_reference_input[1];
             }
@@ -209,7 +261,7 @@ int main(int argc, char *argv[]) {
             dt = dt/MICRO_SEC_PER_SEC; // convert from microseconds to seconds
             start_time = end_time;
 
-            control_step(angles_ref, angles_measured, control_signal, dt, 6.0, 100.0);
+            control_step_v2(angles_ref, angles_measured, control_signal, dt, 6.0, 100.0);
             if (angular_distance(angles_ref, angles_measured) < 0.05) {
                 int zero[2] = {0,0};
                 command_motors(zero, angles_measured);
@@ -219,10 +271,20 @@ int main(int argc, char *argv[]) {
             if (true || std::isnan(angles_measured[0]) || std::isnan(angles_measured[1]) || angular_distance(angles_ref, angles_measured) < 0.5) {
                 get_angles_100(angles_measured);
             }
-
-            usleep((int)std::max(0.0, (0.1 - dt) * MICRO_SEC_PER_SEC));
+            {
+                const std::lock_guard<std::mutex> lock(angles_out_mutex);
+                angles_measured_output[0] = angles_measured[0];
+                angles_measured_output[1] = angles_measured[1];
+            }
+            double loop_sleep = 0.05; // in seconds
+            if (dt < loop_sleep) {
+                usleep(std::max((loop_sleep - dt * 2) * MICRO_SEC_PER_SEC, 0.0));
+            } else {
+                printf("Could not keep up with control loop! Took %f seconds should be less than %f\n", dt, loop_sleep);
+            }
         }
-        thread.join();
+        input_thread.join();
+        output_thread.join();
 
     } else if (argc == 1) {  // Testing area
         // print_help();
