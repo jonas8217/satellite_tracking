@@ -3,64 +3,54 @@ import os.path
 from datetime import datetime,timedelta,timezone
 import numpy as np
 import json
+from matplotlib import pyplot as plt
 
 project_dir = os.path.abspath(os.path.dirname(__file__) + "/..")
 
 def main(argv):
 
-    if len(argv) < 2:
-        print("No sattelite name given")
-        return
-
-
     tle_file = os.path.abspath(project_dir + "/tle_files/sample_tles.txt")
-    try:
-        with open(tle_file,"r") as f:
-            lines =  f.read().split("\n")
 
-        idxs_start = []
-        idxs_in = []
-        for i,line in enumerate(lines):
-            if line != "" and line not in ["1","2"]:
-                if line.lower().startswith(argv[1].lower()):
-                    idxs_start.append(i)
-                elif argv[1].lower() in line.lower():
-                    idxs_in.append(i)
+    with open(tle_file,"r") as f:
+        lines =  f.read().split("\n")
 
-        n = None
-        if len(idxs_start) + len(idxs_in) == 0:
-            print("could not find satellite")
-            exit()
-        elif len(idxs_start) == 1:
-            n = idxs_start[0]
-        elif len(idxs_in) == 1:
-            n = idxs_in[0]
-        elif len(idxs_start) != 0:
-            for idx in idxs_start:
-                if input(f"Choose: \"{lines[idx]}\" [y/N]").lower() in ["y","yes"]:
-                    n = idx
-                    break
-        else:
-            for idx in idxs_in:
-                if input(f"Choose: \"{lines[idx]}\" [y/N]").lower() in ["y","yes"]:
-                    n = idx
-                    break
+    tles = []
+    for i,line in enumerate(lines):
+        if line != "" and line[0] not in ("1","2"):
+            if i + 3 <= len(lines):
+                if lines[i+1].startswith("1 ") and lines[i+2].startswith("2 "):
+                    tles.append((lines[i],lines[i+1],lines[i+2]))
 
-        if n == None:
-            print("No satellite was chosen")
+    if len(argv) < 2:
+        for i,tle in enumerate(tles):
+            print(f" {i + 1}: {tle[0]}")
+
+        n = int(input(f"Choose [1 - {len(tles)}]: ").strip()) - 1
+        if not 0 <= n <= len(tles) - 1:
+            print("Choice not in range of TLEs")
             exit()
 
-        sat_name = lines[n]
+        tle = tles[n]
+    else:
+        tle_options = []
+        for tle in tles:
+            if argv[1] in tle[0]:
+                tle_options.append(tle)
+        if len(tle_options) == 0:
+            print(f"Could not find satellite '{argv[1]}'")
+            exit()
 
-        print(f"Using TLE: \n{sat_name}\n{lines[n+1]}\n{lines[n+2]}\n")
+        for i,tle in enumerate(tle_options):
+            print(f" {i + 1}: {tle[0]}")
 
-        orb = orbital.Orbital(satellite=sat_name,line1=lines[n+1],line2=lines[n+2])
-    except Exception as e:
-        print(e)
-        return
+        n = int(input(f"Choose [1 - {len(tle_options)}]: ").strip()) - 1
+        if not 0 <= n <= len(tle_options) - 1:
+            print("Choice not in range of TLEs")
+            exit()
+        tle = tle_options[n]
 
-    # from pyorbital import tlefile
-
+    print(f"Using TLE: \n{tle[0]}\n{tle[1]}\n{tle[2]}\n")
+    orb = orbital.Orbital(satellite=tle[0],line1=tle[1],line2=tle[2])
 
     # Ground station coordinates gathered from google maps
     # Altitude gotten from en-gb.topographic-map.com/map-z61h/Denmark/ and www.freemaptools.com/elevation-finder.htm
@@ -94,7 +84,6 @@ def main(argv):
 
     for p in pass_times:
         rise,fall,max_el_time = p
-        orb.get_position(t,)
         # TODO maybe make this check take the time over the horizon into account, or maybe the signal strength of the satellite
         if orb.get_observer_look(max_el_time, long_gs, lat_gs, alt_gs)[1] < min_elevation:
             continue
@@ -104,7 +93,7 @@ def main(argv):
         # print(dir(pass_time))
         # exit()
 
-        point = 100 # total trajectory points
+        point = 200 # total trajectory points
 
         ts,azs,els = [],[],[]
 
@@ -115,19 +104,23 @@ def main(argv):
             azs.append(float(az))
             els.append(float(el))
 
-        # print(azs)
-        # print(els)
+        # TODO? resample to get samples spaced equally in angular distance instead of in time
 
+        for i in range(len(azs)-1):
+            if abs(azs[i] - azs[i+1]) > 180:
+                sgn = int(azs[i] < azs[i+1])*2-1
+                azs[i+1] -= sgn * 360
+
+        # TODO make the derivative more accurate (shited half a sample forward in time)
         az_dots,el_dots = [],[]
-        t_prev,az_prev,el_prev = ts[0],azs[0],els[0]
-        for t,az,el in zip(ts[1:], azs[1:], els[1:]):
-            az_dots.append((az-az_prev)/(t-t_prev))
-            el_dots.append((el-el_prev)/(t-t_prev))
-
+        for i in range(len(ts)-1):
+            az_dots.append((azs[i+1]-azs[i])/(ts[i+1]-ts[i]))
+            el_dots.append((els[i+1]-els[i])/(ts[i+1]-ts[i]))
         az_dots.append(az_dots[-1])
         el_dots.append(el_dots[-1])
 
-        # print(az_dots)
+        # plt.plot(ts,az_dots)
+        # plt.show()
 
         az_too_fast,el_too_fast = [],[]
         for az,el,az_dot,el_dot in zip(azs,els,az_dots,el_dots):
@@ -137,14 +130,11 @@ def main(argv):
                 el_too_fast.append([az,el])
 
         if True:
+            print(f"Rise: {rise.strftime('%x %X')} Fall: {fall.strftime('%x %X')} UTC")
             xs = np.array([azs,els])
 
             xs_fast_az = np.array(az_too_fast).T
             xs_fast_el = np.array(el_too_fast).T
-            
-            from matplotlib import pyplot as plt
-
-            print(xs_fast_az.shape,xs_fast_el.shape)
 
             fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
             ax.set_rlim(bottom=90, top=0)
@@ -158,7 +148,23 @@ def main(argv):
 
             plt.show()
 
-        ans = input("Create trajectory? [y/N]").lower()
+        # TODO make an algorithm for producing a trajectory that:
+        #   1. Does not violate the rotor max speed
+        #   2. Is able to choose between going around and through the zenith
+
+        # TODO Validate how good either of the two options from the above algorithm
+        #   Integrate the expected Signal to noise ratio:
+        #   Sources of gain loss:
+        #     pointing error
+        #     free space path loss
+        #     ...
+
+        # TODO
+        #   Shorten the list to start and end at minimum elevation
+        #   Check trajectory against rotor min and max azimuth, correct if possible (+/- 360 degrees) error otherwise
+
+
+        ans = input("Create trajectory? [y/N]: ").lower()
         if ans in ["q","quit","exit"]:
             break
 
@@ -168,14 +174,14 @@ def main(argv):
 
         # create trajectory
         if len(xs_fast_az) == 0 and len(xs_fast_el) == 0:
-            with open(project_dir + f"/trajectories/{sat_name.replace(' ','_')}_{rise.strftime('%Y_%m_%d_%H_%M_%S')}.csv", "w",newline="") as f:
+            with open(f"{project_dir}/trajectories/{tle[0].replace(' ','_')}_{rise.strftime('%Y_%m_%d_%H_%M_%S')}.csv", "w",newline="") as f:
                 f.write("time [ms], azimuth [degrees], elevation [degrees]\n")
                 for t,az,el in zip(ts,azs,els):
                     f.write(f"{rise.timestamp() + t}, {az}, {el}, \n")
         else:
             print("TODO :)")
 
-        if input("Create another? [y/N]").lower() in ["y","yes"]:
+        if input("Create another? [y/N]: ").lower() in ["y","yes"]:
             continue
         break
 
