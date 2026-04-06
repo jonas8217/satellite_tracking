@@ -157,7 +157,9 @@ def main(argv):
 
         # len(xs_fast_az) == 0 and len(xs_fast_el) == 0
         if True:
+            gmt_p2 = timezone(timedelta(hours=2))
             print(f"Rise: {rise.strftime('%x %X')} Fall: {fall.strftime('%x %X')} UTC")
+            print(f"Rise: {rise.astimezone(gmt_p2).strftime('%x %X')} Fall: {fall.astimezone(gmt_p2).strftime('%x %X')} UTC+2")
             xs = np.array([azs,els])
 
             xs_fast_az = np.array(az_too_fast).T
