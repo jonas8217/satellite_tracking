@@ -4,6 +4,7 @@ from datetime import datetime,timedelta,timezone
 import numpy as np
 import json
 from matplotlib import pyplot as plt
+import warnings
 
 project_dir = os.path.abspath(os.path.dirname(__file__) + "/..")
 
@@ -21,10 +22,23 @@ def polar_plot_setup(ax):
     ax.set_rlim(bottom=90, top=0)
     return ax
 
-def get_angular_dist(az1, el1, az2, el2):
-    v1 = R_y(el1) @ R_z(az1) @ np.array(0,0,1)
-    v2 = R_y(el2) @ R_z(az2) @ np.array(0,0,1)
-    return np.arccos(np.dot(v1,v2))
+def add_aoslos(ax,aos,los):
+    ax.plot(aos[0]*np.pi/180, aos[1], color="g", marker="o",clip_on=False, zorder=10, label="AOS", linestyle='None')
+    ax.plot(los[0]*np.pi/180, los[1], color="r", marker="o",clip_on=False, zorder=10, label="LOS", linestyle='None')
+    ax.legend()
+    return ax
+
+def add_aoslos_mod(ax,aos,los):
+    ax.plot(aos[0]*np.pi/180, aos[1], color="c", marker="o",clip_on=False, zorder=10, label="track_AOS", linestyle='None')
+    ax.plot(los[0]*np.pi/180, los[1], color="o", marker="o",clip_on=False, zorder=10, label="track_LOS", linestyle='None')
+    ax.legend()
+    return ax
+
+def angular_dist(az1, el1, az2, el2):
+    v1 = R_z(az1*np.pi/180) @ R_y(el1*np.pi/180) @ np.array([1,0,0])
+    v2 = R_z(az2*np.pi/180) @ R_y(el2*np.pi/180) @ np.array([1,0,0])
+    return np.arccos(min(np.dot(v1,v2),1))
+angular_dist = np.vectorize(angular_dist)
 
 def main(argv):
 
@@ -66,12 +80,13 @@ def main(argv):
                 print(f" {i + 1}: {tle[0]}")
 
             n = int(input(f"Choose [1 - {len(tle_options)}]: ").strip()) - 1
+            print()
             if not 0 <= n <= len(tle_options) - 1:
                 print("Choice not in range of TLEs")
                 exit()
         tle = tle_options[n]
 
-    print(f"\nUsing TLE: \n{tle[0]}\n{tle[1]}\n{tle[2]}\n")
+    print(f"Using TLE: \n{tle[0]}\n{tle[1]}\n{tle[2]}\n")
     orb = orbital.Orbital(satellite=tle[0],line1=tle[1],line2=tle[2])
 
     # Ground station coordinates gathered from google maps
@@ -101,7 +116,11 @@ def main(argv):
 
     hours = 24*10
 
-    pass_times = orb.get_next_passes(datetime.now(timezone.utc), hours, long_gs, lat_gs, alt_gs)
+    warnings.filterwarnings("ignore",category=UserWarning)
+
+    dt_now = datetime.now(timezone.utc)
+    forward_delta = timedelta(hours=34,minutes=10)
+    pass_times = orb.get_next_passes(dt_now + forward_delta, hours, long_gs, lat_gs, alt_gs)
 
     min_elevation = 15
 
@@ -152,15 +171,18 @@ def main(argv):
             if abs(el_dot) > rotor_el_max_speed:
                 el_too_fast.append([az,el])
 
+        xs = np.array([azs,els])
+
         azs_final = azs[:]
         els_final = els[:]
 
         # len(xs_fast_az) == 0 and len(xs_fast_el) == 0
         if True:
             gmt_p2 = timezone(timedelta(hours=2))
+            delta : timedelta = rise - dt_now
+            print(f"Rise in {delta.days * 24 + delta.seconds // 3600} hours and {(delta.seconds % 3600) // 60} minutes")
             print(f"Rise: {rise.strftime('%x %X')} Fall: {fall.strftime('%x %X')} UTC")
             print(f"Rise: {rise.astimezone(gmt_p2).strftime('%x %X')} Fall: {fall.astimezone(gmt_p2).strftime('%x %X')} UTC+2")
-            xs = np.array([azs,els])
 
             xs_fast_az = np.array(az_too_fast).T
             xs_fast_el = np.array(el_too_fast).T
@@ -168,6 +190,7 @@ def main(argv):
             fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
             ax = polar_plot_setup(ax)
             ax.plot(xs[0,:]*np.pi/180, xs[1,:], marker=" ")
+            ax = add_aoslos(ax, xs[:,0],xs[:,-1])
             # visualize problem areas?
             #   angular velocity greater than combined axes  velocity limits 
             if xs_fast_az.size != 0:
@@ -175,6 +198,7 @@ def main(argv):
             if xs_fast_el.size != 0:
                 ax.plot(xs_fast_el[0,:]*np.pi/180, xs_fast_el[1,:], marker=" ")
 
+            fig.set_size_inches(12,8)
             plt.show()
 
         # TODO make an algorithm for producing a trajectory that:
@@ -216,7 +240,7 @@ def main(argv):
             # TODO recompute the elevation to minimize the error relative to the satellite (get close to 90 degrees elevation to minimize azimuth influence?)
             els_around = np.array(els)
 
-
+            err_ang_around = angular_dist(azs,els,azs_around,els_around)
 
             ## Through the Zenith:
             azs_through = np.array(azs)
@@ -272,58 +296,77 @@ def main(argv):
                 els_through[mid_idx+i] = el_mid + el_reach_max
                 i += 1
 
-            debug = False
+            err_ang_through = angular_dist(azs,els,azs_through,els_through)
+
+            debug = True
 
             fig = plt.figure()
 
+
+
             if debug:
-                ax1 = fig.add_subplot(2,2,1,projection='polar')
+                ax1_1 = fig.add_subplot(3,2,1,projection='polar')
             else:
-                ax1 = fig.add_subplot(1,2,1,projection='polar')
-            ax1 = polar_plot_setup(ax1)
-            ax1.title.set_text("Around Zenith")
-            ax1.plot(azs_around*np.pi/180, els_around, marker=" ")
+                ax1_1 = fig.add_subplot(1,2,1,projection='polar')
+            ax1_1 = polar_plot_setup(ax1_1)
+            ax1_1.title.set_text("Around Zenith")
+            ax1_1.plot(xs[0,:]*np.pi/180, xs[1,:], marker=" ",label="original")
+            ax1_1.plot(azs_around*np.pi/180, els_around, marker=" ",label="modified")
+            ax1_1 = add_aoslos(ax1_1, xs[:,0],xs[:,-1])
             if debug:
-                ax2_1 = fig.add_subplot(2,2,3)
-                ax2_1.set_ylabel("Azimuth")
-                ax2_2 = ax2_1.twinx()
-                ax2_2.set_ylabel("Elevation")
-                ax2_2.set_yticks([0,15,30,45,60,75,90])
-                l2_1_1 = ax2_1.plot(ts,azs,marker=" ",color="b",label="Az no compensation")
-                l2_1_2 = ax2_1.plot(ts,azs_around,marker=" ",color="r",label="Az compensated")
-                l2_2_1 = ax2_2.plot(ts,els,marker=" ",color="g",label="El no compensation")
-                # l2_2_2 = ax2_2.plot(ts,els_around,marker=" ",color="c",label="El compensated")
+                ax1_2_1 = fig.add_subplot(3,2,3)
+                ax1_2_1.set_ylabel("Azimuth")
+                ax1_2_2 = ax1_2_1.twinx()
+                ax1_2_2.set_ylabel("Elevation")
+                ax1_2_2.set_yticks([0,15,30,45,60,75,90])
+                l1_2_1_1 = ax1_2_1.plot(ts,azs,marker=" ",color="b",label="Az no compensation")
+                l1_2_1_2 = ax1_2_1.plot(ts,azs_around,marker=" ",color="r",label="Az compensated")
+                l1_2_2_1 = ax1_2_2.plot(ts,els,marker=" ",color="g",label="El no compensation")
+                # l1_2_2_2 = ax1_2_2.plot(ts,els_around,marker=" ",color="c",label="El compensated")
 
-                lines = l2_1_1+l2_1_2+l2_2_1#+l2_2_2
-                ax2_1.legend(lines, [l.get_label() for l in lines])
+                lines = l1_2_1_1+l1_2_1_2+l1_2_2_1#+l1_2_2_2
+                ax1_2_1.legend(lines, [l.get_label() for l in lines])
+
+                ax1_3 = fig.add_subplot(3,2,5)
+                ax1_3.plot(ts, err_ang_around*180/np.pi, marker=" ", label="angular error")
+                ax1_3.plot(ts,np.array([beam_width/2]*len(ts)), color="r", marker=" ", linestyle=(0,(3,6)), zorder=2, label="beam-width")
+                ax1_3.legend()
 
 
             if debug:
-                ax3 = fig.add_subplot(2,2,2,projection='polar')
+                ax2_1 = fig.add_subplot(3,2,2,projection='polar')
             else:
-                ax3 = fig.add_subplot(1,2,2,projection='polar')
-            ax3 = polar_plot_setup(ax3)
-            ax3.title.set_text("Through Zenith")
+                ax2_1 = fig.add_subplot(1,2,2,projection='polar')
+            ax2_1 = polar_plot_setup(ax2_1)
+            ax2_1.title.set_text("Through Zenith")
             # Reproject to the plotting space for the polar plot (+90 degrees does not work):
             els_through_polar = np.concatenate((els_through[:mid_idx],180 - els_through[mid_idx:]))
             azs_through_polar = np.concatenate((azs_through[:mid_idx],azs_through[mid_idx:] - (180 if azs[-1] < 180 else -180)))
-            ax3.plot(azs_through_polar*np.pi/180, els_through_polar, marker=" ")
+            ax2_1.plot(xs[0,:]*np.pi/180, xs[1,:], marker=" ",label="original")
+            ax2_1.plot(azs_through_polar*np.pi/180, els_through_polar, marker=" ",label="modified")
+            ax2_1 = add_aoslos(ax2_1, xs[:,0],xs[:,-1])
             if debug:
-                ax4_1 = fig.add_subplot(2,2,4)
-                ax4_1.set_ylabel("Azimuth")
-                ax4_2 = ax4_1.twinx()
-                ax4_2.set_ylabel("Elevation")
-                ax4_2.set_yticks([0,30,60,90,120,150,180])
-                l4_1_1 = ax4_1.plot(ts,azs_flip,marker=" ",color="b",label="Az no compensation")
-                l4_1_2 = ax4_1.plot(ts,azs_through,marker=" ",color="r",label="Az compensated")
-                l4_2_1 = ax4_2.plot(ts,els_flip,marker=" ",color="g",label="El no compensation")
-                l4_2_2 = ax4_2.plot(ts,els_through,marker=" ",color="c",label="El compensated")
+                ax2_2_1 = fig.add_subplot(3,2,4)
+                ax2_2_1.set_ylabel("Azimuth")
+                ax2_2_2 = ax2_2_1.twinx()
+                ax2_2_2.set_ylabel("Elevation")
+                ax2_2_2.set_yticks([0,30,60,90,120,150,180])
+                l2_2_1_1 = ax2_2_1.plot(ts,azs_flip,marker=" ",color="b",label="Az no compensation")
+                l2_2_1_2 = ax2_2_1.plot(ts,azs_through,marker=" ",color="r",label="Az compensated")
+                l2_2_2_1 = ax2_2_2.plot(ts,els_flip,marker=" ",color="g",label="El no compensation")
+                l2_2_2_2 = ax2_2_2.plot(ts,els_through,marker=" ",color="c",label="El compensated")
 
-                lines = l4_1_1+l4_1_2+l4_2_1+l4_2_2
-                ax4_1.legend(lines, [l.get_label() for l in lines])
+                lines = l2_2_1_1+l2_2_1_2+l2_2_2_1+l2_2_2_2
+                ax2_2_1.legend(lines, [l.get_label() for l in lines])
+
+                ax2_3 = fig.add_subplot(3,2,6)
+                ax2_3.plot(ts, err_ang_through*180/np.pi, marker=" ", label="angular error")
+                ax2_3.plot(ts,np.array([beam_width/2]*len(ts)), color="r", marker=" ", linestyle=(0,(5,8)), zorder=2, label="beam-width")
+                ax2_3.legend()
 
 
             # fig.subplots_adjust(0,0.055,0.96,0.933,0,0.15)
+            fig.set_size_inches(16,8)
             plt.show()
 
 
@@ -358,7 +401,7 @@ def main(argv):
             pass
         elif len(xs_fast_az) != 0 and len(xs_fast_el) == 0:
             try:
-                choice = int(input(f"Choose Around[0] or Through[1] the Znith: ").strip())
+                choice = int(input(f"Choose Around[0] or Through[1] the Zenith: ").strip())
             except:
                 exit()
 

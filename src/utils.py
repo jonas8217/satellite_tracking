@@ -112,8 +112,11 @@ def lat_long_str_to_decimal(geo_str):
 
     return lat,long
     
-
-ginterpolator = GeoidEGM96(os.path.expanduser("~/rotor_control/resources/WW15MGH.GRD"))
+ginterpolator = GeoidEGM96(os.path.join(
+        os.path.realpath(__file__).rstrip("/src/utils.py"),
+        "resources",
+        "WW15MGH.GRD"
+    ))
 def msl_to_ellipsoid(lat, lon, height_msl):
     point = ev.LatLon(lat, lon)
     assert point.height == 0
