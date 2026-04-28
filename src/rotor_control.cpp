@@ -278,37 +278,27 @@ void print_cfg() {
     cfg_value cfg_value = interpret_cfg_value(field_id);
 
     if (cfg_value.data_type == rotCfgDataType::rcdt_float) {
-        printf("Value: %.2f \n", cfg_value.double_);
+        printf("Value: %.2f\n", cfg_value.double_);
     } else if (cfg_value.data_type == rotCfgDataType::rcdt_uint32_t) {
-        printf("Value: %d \n", cfg_value.int_);
+        printf("Value: %d\n", cfg_value.int_);
     } else {
-        printf("Value: 0x%02x 0x%02x 0x%02x 0x%02x \n", cfg_value.bytes[0], cfg_value.bytes[1], cfg_value.bytes[2], cfg_value.bytes[3]);
+        printf("Value: 0x%02x 0x%02x 0x%02x 0x%02x\n", cfg_value.bytes[0], cfg_value.bytes[1], cfg_value.bytes[2], cfg_value.bytes[3]);
     }
 }
 
 cfg_value cfg_values[sizeof(rotCfgFields)];
 
-cfg_value get_configuration(int field_id = -1) {
-
+cfg_value get_configuration(int field_id) {
     setup_write_buffer_for_input(CMD_CFG_GET);
-    if (field_id == -1) {
-        for (int i = 0; i < sizeof(rotCfgFields); i++) {  // TODO check sizeof or use "max_field_id" as acquired from the control box
-            WRITE_BUF[1] = i % 256;
-            WRITE_BUF[2] = i / 256;
-            send_recv(CMD_CFG_GET, MAX_RETURN_MSG_LEN);
-            cfg_values[i] = interpret_cfg_value(i);
-        }
-        return cfg_values[0]; // to get rid of a warning
-    } else {
-        WRITE_BUF[1] = field_id % 256;
-        WRITE_BUF[2] = field_id / 256;
-        send_recv(CMD_CFG_GET, MAX_RETURN_MSG_LEN);
-        if (field_id != READ_BUF[1] + 256 * READ_BUF[2]) {
-            printf("recieved field id is not the same as transmitted field id :(");
-        }
-        return interpret_cfg_value(field_id);
+    WRITE_BUF[1] = field_id % 256;
+    WRITE_BUF[2] = field_id / 256;
+    send_recv(CMD_CFG_GET, MAX_RETURN_MSG_LEN);
+    if (field_id != READ_BUF[1] + 256 * READ_BUF[2]) {
+        printf("recieved field id is not the same as transmitted field id :(");
     }
+    return interpret_cfg_value(field_id);
 }
+
 void decode_angles(double* angle_output) {
     // angle = StrToInt(receivedAngle) * divisor - 360 * divisor
     int a1 = READ_BUF[1 + 0] * 1000 + READ_BUF[1 + 1] * 100 + READ_BUF[1 + 2] * 10 + READ_BUF[1 + 3] * 1;  // convert to integer

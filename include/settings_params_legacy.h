@@ -183,6 +183,7 @@ typedef struct {
 
 typedef struct  ROT_FRAM_PARAMS  {
 // -------------------------------- DATAVER fffffffc
+    uint8_t max_field_id;
     seDataVersion data_ver;
     MOTOR_PARAMS motor[2];
     COM_PARAMS com[2];

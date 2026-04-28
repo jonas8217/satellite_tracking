@@ -204,12 +204,19 @@ int main(int argc, char *argv[]) {
             printf("Rotor stopped\n");
 
         } else if (std::strcmp(argv[1], "get-config") == 0) {
-            if (argc != 3) {
-                printf("missing config field value\n");
+            if (argc != 3 || std::stoi(argv[2]) == -1) {
+                printf("Printing all configurations\n");
+                uint8_t max_field_id = get_configuration(0).int_;
+                print_cfg();
+                for (int i = 1; i < max_field_id + 1; i++) { // TODO expand to the additional values not shown in rotCfgFields
+                    get_configuration(i);
+                    print_cfg();
+                }
+            } else {
+                int field_id = std::stoi(argv[2]);
+                get_configuration(field_id);
+                print_cfg();
             }
-            int field_id = std::stoi(argv[2]);
-            get_configuration(field_id);
-            print_cfg();
         } else if ((std::strcmp(argv[1], "-h") != 0 && std::strcmp(argv[1], "help") != 0 && !do_control)) {
             print_help();
         }

@@ -2,3 +2,4 @@
 build/
 *.swp
 plots/
+__pycache__/
