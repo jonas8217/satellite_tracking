@@ -1,3 +1,5 @@
+#pragma once
+
 #include <math.h>
 // #include <cstring>
 #include <iomanip>
