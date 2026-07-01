@@ -29,6 +29,12 @@
 
 #define DEBUG_COMMS 0
 #define DO_CONTROL 0
+#define DO_SIMULATED_ROTOR 1
+
+#if DO_SIMULATED_ROTOR
+#include "simulated_rotor.cpp"
+simulated_rotor rotor_sim;
+#endif
 
 #define MICRO_SEC_PER_SEC 1000000.0
 
@@ -56,9 +62,9 @@ enum MSG_TYPE {
     CMD_POWER,                 // Set motors power (0-100%). (Applied immediately, without stoping current move)
 } msg_type;
 
-const bool MSG_HAS_INPUT[] = {0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 1};
+static constexpr  bool MSG_HAS_INPUT[] = {0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 1};
 
-const uint8_t MSG_ARRAYS[][13] = {
+static constexpr  uint8_t MSG_ARRAYS[][13] = {
     {0x57, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x20},  // CMD_GET_MOTOR_ANGLES
     {0x57, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6f, 0x20},  // CMD_GET_MOTOR_ANGLES_100
     {0x57, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x2f, 0x20},  // CMD_SET_ANGLES
@@ -73,6 +79,12 @@ const uint8_t MSG_ARRAYS[][13] = {
 };
 
 int setup_USB_UART_connection() {
+#if DO_SIMULATED_ROTOR
+    rotor_sim.setup();
+    setup_complete = true;
+    return 0;
+#endif
+
     SERIAL_PORT = open(PORT, O_RDWR);
 
     // Info from this blog
@@ -162,8 +174,11 @@ void send(MSG_TYPE type) {
         }
         printf("\n");
     }
-
+#if DO_SIMULATED_ROTOR
+    rotor_sim.write(WRITE_BUF, TRANSMIT_MSG_LEN);
+#else
     write(SERIAL_PORT, WRITE_BUF, TRANSMIT_MSG_LEN);
+#endif
 
     // clear WRITE_BUF to make sure no mistakes are made while testing message functions
     for (int i = 0; i < TRANSMIT_MSG_LEN; i++) {
@@ -173,6 +188,9 @@ void send(MSG_TYPE type) {
 
 void recv(int expected_return_bytes) {
     int num_bytes = 0;
+#if DO_SIMULATED_ROTOR
+    num_bytes = rotor_sim.read(READ_BUF, expected_return_bytes);
+#else
     if (expected_return_bytes > NOMINAL_RETURN_MSG_BYTES) {
         while (num_bytes < expected_return_bytes) {
             num_bytes += read(SERIAL_PORT, &*(READ_BUF + num_bytes), MAX_RETURN_MSG_LEN);
@@ -180,6 +198,7 @@ void recv(int expected_return_bytes) {
     } else {
         num_bytes = read(SERIAL_PORT, &READ_BUF, MAX_RETURN_MSG_LEN);
     }
+#endif
 
     if (num_bytes < 0) {
         printf("Error reading: %s", strerror(errno));

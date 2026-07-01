@@ -154,7 +154,7 @@ int main(int argc, char *argv[]) {
                 printf("Command sent successfully: %.2f, %.2f\n", angles_inp[0], angles_inp[1]);
 
                 double angles_read[2];
-                get_angles(angles_read);
+                get_angles_100(angles_read);
 
                 if (angular_distance(angles_inp, angles_read) < 0.15) {
                     printf("Done\n");
@@ -191,6 +191,7 @@ int main(int argc, char *argv[]) {
         else if (std::strcmp(argv[1], "set-direction") == 0) {
             if (argc != 4) {
                 printf("Movement duration not provided, direction not set\n");
+                return -1;
             }
             int d = std::stoi(argv[2]);             // movement direction Right:0 Left:1 Up:2 Down:3
             double t = std::stod(argv[3]);          // time on seconds (decimal allowed)
@@ -307,7 +308,7 @@ int main(int argc, char *argv[]) {
         }
 
         // double angle_output[2] = {0,0};
-        // get_angles(angle_output);
+        // get_angles_100(angle_output);
         // printf("Motor 1 (az/X) angle: %.2f\nMotor 2 (el/Y) angle: %.2f\n", angle_output[0], angle_output[1]);
 
         // get_angles_100(angle_output);
