@@ -8,19 +8,17 @@
 
 #include "utils.cpp"
 
+void print_buf(uint8_t* buf, int size) {
+    for (int i = 0; i < size; i++) {
+        printf("0x%02x ", buf[i]);
+    }
+    printf("\n");
+}
+
 class simulated_rotor
 {
 private:
-    void sim_rotor_loop();
-    void sim_rotor_step(double dt);
-    void handle_write_input();
-
-    void get_motor_angles_100();
-    void set_angles_100();
-    void set_directions();
-    void set_power();
-
-    std::atomic_bool run = true;
+    std::atomic_bool run = false;
 
     static constexpr double _MICRO_SEC_PER_SEC = 1000000.0;
     static constexpr int _MAX_RETURN_MSG_LEN = 43;
@@ -76,11 +74,23 @@ private:
     std::thread sim_thread;
     bool unread_input = false;
 
+    void sim_rotor_loop();
+    void sim_rotor_step(double dt);
+    void handle_write_input();
+    void setup_read_buffer_for_output(_MSG_TYPE type);
+
+    void get_motor_angles_100();
+    void set_angles_100();
+    void set_directions();
+    void set_power();
+    void stop_rotor();
+
 public:
     simulated_rotor();
     void setup();
-    void write(const void *__buf, size_t __n);
-    int read(void *__buf, size_t __nbytes);
+    void write(uint8_t *__buf, size_t __n);
+    int read(uint8_t *__buf, size_t __nbytes);
+    bool running();
     ~simulated_rotor();
 };
 
@@ -93,41 +103,62 @@ void simulated_rotor::setup()
     sim_thread = std::thread(&simulated_rotor::sim_rotor_loop, this);
 }
 
-int simulated_rotor::read(void *__buf, size_t __nbytes)
+void simulated_rotor::setup_read_buffer_for_output(_MSG_TYPE type) {
+    for (int i = 0; i < 12; i++) {
+        OUT_BUF[i] = 0;
+    }
+    OUT_BUF[0] = 0x57;
+    OUT_BUF[11] = 0x20;
+}
+
+int simulated_rotor::read(uint8_t *__buf, size_t __nbytes)
 {
+    bool _unread_input = true;
+    while (_unread_input) {
+        {
+            const std::lock_guard<std::mutex> lock(rw_mutex);
+            _unread_input = unread_input;
+        }
+    }
+
     const std::lock_guard<std::mutex> lock(rw_mutex);
     if (OUT_BUF[0] == 0) {
+        printf("Nothing to read\n");
         return 0;
     }
-    std::memcpy(OUT_BUF, __buf, __nbytes);
+    std::memcpy(__buf, OUT_BUF, __nbytes);
     // std::memset(OUT_BUF, 0, _MAX_RETURN_MSG_LEN); // not necessary if handled by the rotor controller correctly
     return __nbytes;
 }
 
-void simulated_rotor::write(const void *__buf, size_t __n)
+void simulated_rotor::write(uint8_t* __buf, size_t __n)
 {
     const std::lock_guard<std::mutex> lock(rw_mutex);
     if (__n > _TRANSMIT_MSG_LEN) {
         printf("[Simulated rotor] Cannot write to buffer, n: %lu greater than max message length: %d\n",__n,_TRANSMIT_MSG_LEN);
         return;
     }
-    std::memcpy((void *)__buf, INP_BUF, __n);
+    std::memcpy(INP_BUF,__buf, __n);
     unread_input = true;
 }
 
 void simulated_rotor::get_motor_angles_100() {
-    
-    std::string s1 = ZeroPadNumber2Str((int)(360 * 100 + (az * 100)),4);  // do the math and convert to string
-    std::string s2 = ZeroPadNumber2Str((int)(360 * 100 + (el * 100)),4);
 
-    OUT_BUF[1 + 0] = s1[0];
-    OUT_BUF[1 + 1] = s1[1];
-    OUT_BUF[1 + 2] = s1[2];
-    OUT_BUF[1 + 3] = s1[3];
-    OUT_BUF[6 + 0] = s2[0];
-    OUT_BUF[6 + 1] = s2[1];
-    OUT_BUF[6 + 2] = s2[2];
-    OUT_BUF[6 + 3] = s2[3];
+    setup_read_buffer_for_output(CMD_GET_MOTOR_ANGLES_100);
+
+    std::string s1 = ZeroPadNumber2Str((int)(360 * 100 + (az * 100)),5);  // do the math and convert to string
+    std::string s2 = ZeroPadNumber2Str((int)(360 * 100 + (el * 100)),5);
+
+    OUT_BUF[1 + 0] = s1[0]-48;
+    OUT_BUF[1 + 1] = s1[1]-48;
+    OUT_BUF[1 + 2] = s1[2]-48;
+    OUT_BUF[1 + 3] = s1[3]-48;
+    OUT_BUF[1 + 4] = s1[4]-48;
+    OUT_BUF[6 + 0] = s2[0]-48;
+    OUT_BUF[6 + 1] = s2[1]-48;
+    OUT_BUF[6 + 2] = s2[2]-48;
+    OUT_BUF[6 + 3] = s2[3]-48;
+    OUT_BUF[6 + 4] = s2[4]-48;
 }
 
 void simulated_rotor::set_angles_100() {
@@ -136,14 +167,25 @@ void simulated_rotor::set_angles_100() {
     az_target = a1 / 100.0 - 360.0;
     el_target = a2 / 100.0 - 360.0;
     angle_target_set = true;
+    get_motor_angles_100();
 }
 
 void simulated_rotor::set_directions() {
-
+    motor_directions = INP_BUF[1];
+    angle_target_set = false;
 }
 
 void simulated_rotor::set_power() {
+    motor_1_power = INP_BUF[5];
+    motor_2_power = INP_BUF[10];
+    angle_target_set = false;
+}
 
+void simulated_rotor::stop_rotor() {
+    motor_1_power = 0;
+    motor_2_power = 0;
+    motor_directions = 0;
+    angle_target_set = false;
 }
 
 void simulated_rotor::handle_write_input() {
@@ -165,11 +207,18 @@ void simulated_rotor::handle_write_input() {
     case _MSG_ARRAYS[CMD_POWER][11]:
         set_power();
         break;
+    case _MSG_ARRAYS[CMD_STOP][11]:
+        stop_rotor();
+        break;
     default:
         printf("[Simulated rotor] command not implemented '0x%02x'\n", INP_BUF[11]);
         break;
     }
     memset(INP_BUF, 0, _TRANSMIT_MSG_LEN); // clear buffer to indicate no message
+}
+
+bool simulated_rotor::running(){
+    return run;
 }
 
 void simulated_rotor::sim_rotor_step(double dt)
@@ -186,6 +235,8 @@ void simulated_rotor::sim_rotor_loop()
 {
     auto now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     double t = now_micro_sec/_MICRO_SEC_PER_SEC;
+    bool _angle_target_set = angle_target_set;
+    printf("[Simulated rotor] Starting sim loop\n");
     run = true;
     while (run) {
         // handle input
@@ -194,6 +245,7 @@ void simulated_rotor::sim_rotor_loop()
             if (unread_input) {
                 handle_write_input();
                 unread_input = false;
+                _angle_target_set = angle_target_set;
             }
         }
         now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -204,8 +256,10 @@ void simulated_rotor::sim_rotor_loop()
 
 simulated_rotor::~simulated_rotor()
 {
-    run = false;
-    sim_thread.join();
+    if (run) {
+        run = false;
+        sim_thread.join();
+    }
 }
 
 

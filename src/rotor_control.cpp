@@ -81,6 +81,9 @@ static constexpr  uint8_t MSG_ARRAYS[][13] = {
 int setup_USB_UART_connection() {
 #if DO_SIMULATED_ROTOR
     rotor_sim.setup();
+    while (!rotor_sim.running()) {
+        usleep(10000);
+    }
     setup_complete = true;
     return 0;
 #endif
@@ -396,8 +399,6 @@ void set_angles_100(double* angle_input) {
     WRITE_BUF[6 + 3] = s2[3];
     WRITE_BUF[6 + 4] = s2[4];
 
-    print_write_buf();
-
     send_recv(CMD_SET_ANGLES_100, NOMINAL_RETURN_MSG_BYTES);
 }
 
@@ -594,7 +595,7 @@ void track_trajectory(std::string trajectory_file_path) {
     std::vector<std::array<double,3>> traj;
     std::string header;
     std::getline(fs, header);
-    
+
     std::string line;
     while (std::getline(fs,line)) {
         std::string t_s,az_s,el_s;
@@ -614,8 +615,8 @@ void track_trajectory(std::string trajectory_file_path) {
     
     for (int i = 0; i < traj.size(); i++) {
         std::array<double,3> waypoint = traj[i];
-        if (waypoint[1] < rotor_min_el || waypoint[1] > rotor_max_el || waypoint[2] < rotor_min_az || waypoint[2] < rotor_max_az) {
-            printf("Waypoints %d out of range Az: %.2f El: %.2f \n", i, waypoint[1], waypoint[2]);
+        if (waypoint[1] < rotor_min_az || waypoint[1] > rotor_max_az || waypoint[2] < rotor_min_el || waypoint[2] > rotor_max_el) {
+            printf("Waypoint %d out of range Az: %.2f El: %.2f \n", i, waypoint[1], waypoint[2]);
         }
     }
 
@@ -655,7 +656,7 @@ void track_trajectory(std::string trajectory_file_path) {
     // Goto start position
     double start_angle[2] = {traj[0][1], traj[0][2]};
     printf("Going to start position. Az: %.2f El: %.2f\n",traj[0][1], traj[0][2]);
-    // set_angles_100(start_angle);
+    set_angles_100(start_angle);
 
     // wait
     if (now_s + 10 < start_time) {

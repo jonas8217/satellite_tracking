@@ -286,7 +286,7 @@ int main(int argc, char *argv[]) {
             }
             double loop_sleep = 0.05; // in seconds
             if (dt < loop_sleep) {
-                usleep(std::max((loop_sleep - dt * 2) * MICRO_SEC_PER_SEC, 0.0));
+                usleep(std::max((loop_sleep - dt * 2 - 0.001) * MICRO_SEC_PER_SEC, 0.0));
             } else {
                 printf("Could not keep up with control loop! Took %f seconds should be less than %f\n", dt, loop_sleep);
             }
