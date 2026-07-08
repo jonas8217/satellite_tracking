@@ -464,10 +464,14 @@ void command_motors(int control_input[2], double* angle_output) {
 
     if (std::abs(control_input[0]) < min_power && std::abs(control_input[1]) < min_power) {
         set_motor_direction(0,0); // stop
+        last_directions[0] = 0;
+        last_directions[1] = 0;
+        last_power[0] = 0;
+        last_power[1] = 0;
         return;
     }
     // minimize commands sendt to the rotor controller
-    if (last_directions[0] != sign(control_input[0]) || last_directions[1] != sign(control_input[1])) { 
+    if (last_directions[0] != sign(control_input[0]) || last_directions[1] != sign(control_input[1])) {
         set_motor_direction(sign(control_input[0]),sign(control_input[1]));
         last_directions[0] = sign(control_input[0]);
         last_directions[1] = sign(control_input[1]);
@@ -576,13 +580,13 @@ void track_trajectory(std::string trajectory_file_path) {
     //   * Angular range
     //   * Angular velocity
     // print info about the trajectory for validation TODO
-    
-    // Run 
+
+    // Run
     //
     // go to starting position
     // wait for start of the pass
     // run control loop
-    
+
     std::cout << trajectory_file_path << std::endl;
     std::fstream fs;
     fs.open(trajectory_file_path,std::ios::in);
@@ -591,7 +595,7 @@ void track_trajectory(std::string trajectory_file_path) {
         std::cout << "File could not be read" << std::endl;
         return;
     }
-    
+
     std::vector<std::array<double,3>> traj;
     std::string header;
     std::getline(fs, header);
@@ -606,13 +610,13 @@ void track_trajectory(std::string trajectory_file_path) {
         std::array<double,3> tmp = {t,az,el};
         traj.push_back(tmp);
     }
- 
+
     // TODO move to the configuration file and load them, or get them from the ground station config via get_configuration directly from the rotor controller
     int rotor_min_el = -5;
     int rotor_max_el = 185;
     int rotor_min_az = -180;
     int rotor_max_az = 540;
-    
+
     for (int i = 0; i < traj.size(); i++) {
         std::array<double,3> waypoint = traj[i];
         if (waypoint[1] < rotor_min_az || waypoint[1] > rotor_max_az || waypoint[2] < rotor_min_el || waypoint[2] > rotor_max_el) {
@@ -622,14 +626,14 @@ void track_trajectory(std::string trajectory_file_path) {
 
     // TODO do max axis speed check
 
-    auto now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    auto now_micro_sec = get_microseconds_now();
     double now_s = now_micro_sec/MICRO_SEC_PER_SEC;
 
     double end_time = traj[traj.size()-1][0];
     double start_time = traj[0][0];
 
-    if (now_s > traj[0][0]) {
-        if (now_s < traj[traj.size()-1][0]) {
+    if (now_s > start_time) {
+        if (now_s < end_time) {
             std::cout << "Pass is underway, there are " << (int)now_s << " seconds left, track anyway? [y/N]: ";
             std::string ans;
             getline(std::cin, ans);
@@ -637,12 +641,12 @@ void track_trajectory(std::string trajectory_file_path) {
                 return;
             }
         } else {
-            int end_duration = (int)(traj[traj.size()-1][0] - now_s);
+            int end_duration = (int)(end_time - now_s);
             std::cout << "The pass has ended " << end_duration/60 << " minutes and " << end_duration - (end_duration/60)*60  << " seconds ago, exiting." << std::endl;
             return;
         }
     } else {
-        int sec_until = traj[0][0] - (int)now_s;
+        int sec_until = (int)(start_time - now_s);
         std::cout << "The pass will happen in " << sec_until/60 << " minutes and " << sec_until - (sec_until/60)*60  << " seconds, wait for pass and track? [Y/n]: ";
         std::string ans;
         getline(std::cin, ans);
@@ -655,14 +659,25 @@ void track_trajectory(std::string trajectory_file_path) {
     if (setup_USB_UART_connection() != 0) return;
     // Goto start position
     double start_angle[2] = {traj[0][1], traj[0][2]};
-    printf("Going to start position. Az: %.2f El: %.2f\n",traj[0][1], traj[0][2]);
+    printf("Going to start position. Az: %.2f El: %.2f\n",start_angle[0], start_angle[1]);
     set_angles_100(start_angle);
+
+    double angles_measured[2];
+
+    while (true) {
+        get_angles_100(angles_measured);
+        if (angular_distance(start_angle, angles_measured) < 0.1) {
+            printf("Reached starting angle az: %.2f el: %.2f\n", angles_measured[0], angles_measured[1]);
+            break;
+        }
+        usleep(0.1 * MICRO_SEC_PER_SEC);
+    }
 
     // wait
     if (now_s + 10 < start_time) {
-        std::cout << "Waiting for start of pass" << std::endl;
+        std::cout << "Waiting for start of pass\n" << std::endl;
         while (now_s + 10 < start_time) {
-            now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            now_micro_sec = get_microseconds_now();
             now_s = now_micro_sec/MICRO_SEC_PER_SEC;
             sleep(1);
         }
@@ -673,20 +688,20 @@ void track_trajectory(std::string trajectory_file_path) {
 
     double angles_ref[2] = {0,0};
 
-    double angles_measured[2];
     int control_signal[2];
 
     get_angles_100(angles_measured);
     angles_ref[0] = start_angle[0]; angles_ref[1] = start_angle[1];
 
     int traj_index = 0;
+    int last_traj_index = 0;
 
-    now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    now_micro_sec = get_microseconds_now();
     now_s = now_micro_sec/MICRO_SEC_PER_SEC;
     double prev_time_s = now_s;
     while (now_s < end_time) {
 
-        now_micro_sec = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        now_micro_sec = get_microseconds_now();
         now_s = now_micro_sec/MICRO_SEC_PER_SEC;
         double dt = (prev_time_s - now_s);
         prev_time_s = now_s;
@@ -701,7 +716,7 @@ void track_trajectory(std::string trajectory_file_path) {
         double t = (now_s - traj[traj_index][0]) / (traj[traj_index+1][0] - traj[traj_index][0]);
         lerp_arr(traj_angles,traj_angles_next,t,angles_ref,2);
 
-        control_step(angles_ref, angles_measured, control_signal, dt, 6.0, 100.0);
+        control_step_v2(angles_ref, angles_measured, control_signal, dt, 1.5, 100.0);
         if (angular_distance(angles_ref, angles_measured) < 0.05) {
             int zero[2] = {0,0};
             command_motors(zero, angles_measured);
@@ -712,6 +727,10 @@ void track_trajectory(std::string trajectory_file_path) {
             get_angles_100(angles_measured);
         }
 
+        if (last_traj_index != traj_index) {
+            printf("az: %.2f el: %.2f\n", angles_measured[0], angles_measured[1]);
+            last_traj_index = traj_index;
+        }
         usleep((int)std::max(0.0, (0.1 - dt) * MICRO_SEC_PER_SEC));
     }
 }

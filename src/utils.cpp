@@ -1,7 +1,7 @@
 #pragma once
 
 #include <math.h>
-// #include <cstring>
+#include <chrono>
 #include <iomanip>
 #include <sstream>
 #include <fstream>
@@ -32,4 +32,8 @@ void lerp_arr(double* a, double* b, double t, double* output, uint len) {
     for (int i = 0; i < len; i++){
         output[i] = (b[i] - a[i]) * t;
     }
+}
+
+int64_t get_microseconds_now() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 }

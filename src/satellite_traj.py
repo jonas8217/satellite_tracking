@@ -9,10 +9,12 @@ import warnings
 project_dir = os.path.abspath(os.path.dirname(__file__) + "/..")
 
 def write_trajectory(tle,rise,ts,azs,els):
-    with open(f"{project_dir}/trajectories/{tle[0].replace(' ','_')}_{rise.strftime('%Y_%m_%d_%H_%M_%S')}.csv", "w",newline="") as f:
+    d = f"trajectories/{tle[0].replace(' ','_')}_{rise.strftime('%Y_%m_%d_%H_%M_%S')}.csv"
+    with open(f"{project_dir}/{d}", "w",newline="") as f:
         f.write("time [ms], azimuth [degrees], elevation [degrees]\n")
         for t,az,el in zip(ts,azs,els):
             f.write(f"{rise.timestamp() + t}, {az}, {el}, \n")
+    print(f"Created trajectory at {d}")
 
 from utils import R_z,R_y
 
@@ -120,6 +122,7 @@ def main(argv):
 
     dt_now = datetime.now(timezone.utc)
     forward_delta = timedelta(hours=34,minutes=10)
+    forward_delta = timedelta(seconds=0)
     pass_times = orb.get_next_passes(dt_now + forward_delta, hours, long_gs, lat_gs, alt_gs)
 
     min_elevation = 15

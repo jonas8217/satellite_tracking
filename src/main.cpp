@@ -162,6 +162,7 @@ int main(int argc, char *argv[]) {
                 } else {
                     double angles_read_prev[2];
                     angles_read_prev[0] = angles_read[0]; angles_read_prev[1] = angles_read[1];
+                    int stall_counter = 0;
                     printf("Waiting...\n");
                     usleep(1 * MICRO_SEC_PER_SEC);
                     while (true) {
@@ -172,6 +173,11 @@ int main(int argc, char *argv[]) {
                             break;
                         }
                         if (angles_read[0] == angles_read_prev[0] && angles_read[1] == angles_read_prev[1]) {
+                            stall_counter += 1;
+                        } else {
+                            stall_counter = 0;
+                        }
+                        if (stall_counter > 2) {
                             printf("Is motor stalled?\nConsider chaking the power settings on the rotor.\n");
                             break;
                         }
@@ -275,6 +281,10 @@ int main(int argc, char *argv[]) {
                 command_motors(zero, angles_measured);
             } else {
                 command_motors(control_signal, angles_measured);
+                // printf("\x1b[2K\r%d\t%d\t%f\t%f", control_signal[0], control_signal[1], angles_measured[0], angles_measured[1]);
+                // if (!std::isnormal(angles_measured[0]) || !std::isnormal(angles_measured[1])) {
+                //     printf("%d\t%d\t%f\t%f\n", control_signal[0], control_signal[1], angles_measured[0], angles_measured[1]);
+                // }
             }
             if (true || std::isnan(angles_measured[0]) || std::isnan(angles_measured[1]) || angular_distance(angles_ref, angles_measured) < 0.5) {
                 get_angles_100(angles_measured);
@@ -286,7 +296,7 @@ int main(int argc, char *argv[]) {
             }
             double loop_sleep = 0.05; // in seconds
             if (dt < loop_sleep) {
-                usleep(std::max((loop_sleep - dt * 2 - 0.001) * MICRO_SEC_PER_SEC, 0.0));
+                usleep(std::max((loop_sleep - dt * 2 - 0.004) * MICRO_SEC_PER_SEC, 0.0));
             } else {
                 printf("Could not keep up with control loop! Took %f seconds should be less than %f\n", dt, loop_sleep);
             }
