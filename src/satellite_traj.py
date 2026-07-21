@@ -156,7 +156,7 @@ def main(argv):
                 sgn = int(azs[i] < azs[i+1])*2-1
                 azs[i+1] -= sgn * 360
 
-        # TODO make the derivative more accurate (shited half a sample forward in time)
+        # TODO make the derivative more accurate (shifted half a sample forward in time)
         az_dots,el_dots = [],[]
         for i in range(len(ts)-1):
             az_dots.append((azs[i+1]-azs[i])/(ts[i+1]-ts[i]))
@@ -204,14 +204,14 @@ def main(argv):
             fig.set_size_inches(12,8)
             plt.show()
 
-        # TODO make an algorithm for producing a trajectory that:
+        # DONE make an algorithm for producing a trajectory that: 
         #   1. Does not violate the rotor max speed
         #   2. Is able to choose between going around and through the zenith
 
         # TODO for polar plots:
-        # add AOS and LOS for the satellite
+        # add AOS and LOS for the satellite DONE
         # add AOS and LOS due to inperfect tracking (use beam_width)
-        # add original trajectory to compare
+        # add original trajectory to compare DONE
 
         if len(xs_fast_az) != 0 and len(xs_fast_el) == 0:
             print("The regular trajectory is faster than the rotor max azimuth speed, and therefore has to be optimized.\nShowing options")
@@ -240,7 +240,6 @@ def main(argv):
                 azs_around[mid_idx+i] = az_mid + sign * az_reach_max
                 i += 1
 
-            # TODO recompute the elevation to minimize the error relative to the satellite (get close to 90 degrees elevation to minimize azimuth influence?)
             els_around = np.array(els)
 
             err_ang_around = angular_dist(azs,els,azs_around,els_around)
